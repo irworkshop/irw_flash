@@ -1,0 +1,13 @@
+
+map data source:
+
+/Users/jacobfenton/IRW/gis_data/world_map/worldmap_geocommons_5603
+Jacob-Fentons-MacBook-Pro:worldmap_geocommons_5603 jacobfenton$ 
+
+Jacob-Fentons-MacBook-Pro:worldmap_geocommons_5603 jacobfenton$ ls
+world_countries_boundary_file_world_2002.README
+world_countries_boundary_file_world_2002.dbf
+world_countries_boundary_file_world_2002.shp
+world_countries_boundary_file_world_2002.shx
+worldmap.qgs
+

@@ -1,0 +1,208 @@
+<?xml version="1.0"?>
+
+<mx:Application xmlns:mx="http://www.adobe.com/2006/mxml">
+
+    <mx:Script>
+        <![CDATA[
+
+		import flash.display.DisplayObjectContainer;
+		import flash.display.DisplayObject;
+		import flash.display.Sprite;
+		import flash.display.StageAlign;
+		import flash.display.StageScaleMode;
+		import flash.display.Graphics;
+
+		import flash.text.TextField;
+		import flash.text.TextFieldAutoSize;
+		import flash.text.TextFormat;
+		import flash.text.TextFieldType;
+
+		import flash.events.Event;
+		import flash.events.SecurityErrorEvent;
+
+		import flash.net.URLRequest;
+		import flash.utils.ByteArray;
+		import flash.geom.Rectangle;
+
+		import org.vanrijkom.far.*;
+		import org.vanrijkom.shp.*;
+		import org.vanrijkom.dbf.*;
+
+		[SWF(width="800",height="600", frameRate="30", backgroundColor="0xFFFFFF")]
+		public class far_shape_1 extends Sprite
+		{
+			private var status	: TextField;
+
+			private var far		: FarStream;
+			private var states	: FarItem;
+			private var rivers	: FarItem;
+			private var roads	: FarItem;
+			private var cities	: FarItem;
+			private var citiesdb: FarItem;
+
+			private var z: Number = 50;
+			private var s: Sprite = new Sprite();
+			private var g: Graphics = s.graphics;
+
+			public function far_shape_1() {
+				init();
+			}
+
+			private function init():void {	
+				// Instantiate a FarStream
+				far	= new FarStream();
+
+				// Get FarItem instances for the files we expect to
+				// find in our FAR arhive:
+				states	= far.item("mexico/states.shp");
+				rivers	= far.item("mexico/rivers.shp");
+				roads	= far.item("mexico/roads.shp");
+				cities	= far.item("mexico/cities.shp");
+				citiesdb= far.item("mexico/cities.dbf");
+
+				// Listen to 'states.shp' completing: it is the highest 
+				// priority file in the archive, and will thus be triggered
+				// first. We can use this to setup the child sprite we'll
+				// be using for drawing:
+				states.addEventListener(Event.COMPLETE, drawStates);
+
+				// Listen to the full archive complete loading. On receiving
+				// this event, rivers, roads and all other assets will have
+				// fully loaded:
+				far.addEventListener(Event.COMPLETE, drawOthers);
+
+				// Start loading the archive.
+				far.load(new URLRequest("mexico.far"));		
+			}
+
+			public function drawStates(e: Event):void {
+				g.lineStyle(0.01,0xA0A0A0);
+				// ShpTools.drawPolyShpFile methods reads a SHP file header,
+				// and traverses all Polygon or Polyline records in it. The
+				// foung objects get drawn to Graphics instance g using the
+				// Flash drawing API
+				var shp: ShpHeader = ShpTools.drawPolyShpFile(states.data,g,z);
+
+				// add sprite to canvas:
+				addChild(s);	
+				// scale the clip to nicely fit our canvas:		
+				scaleToFitCanvas(s,shp,z);		
+			}
+
+			public function drawOthers(e: Event): void {
+				// draw rivers:
+				g.lineStyle(0.01,0xFF);
+				ShpTools.drawPolyShpFile(rivers.data,g,z);		
+				// draw roads:
+				g.lineStyle(0.01,0xFF0000);
+				ShpTools.drawPolyShpFile(roads.data,g,z);
+
+				// process cities: 
+				//   - SHP file defines city locations (x,y),
+				//   - DBF file city names (amongst other things).
+
+				// parse the header of the Shapefile loaded in cities.data:
+				var shp: ShpHeader = new ShpHeader(cities.data);
+				// parse the header of the Shapefile loaded in citiesdb.data:
+				var dbf: DbfHeader = new DbfHeader(citiesdb.data);
+				// draw city name labels:
+				drawDbfLabelsAtShpPoints
+					( s, z				// target DisplayObjectContainer and zoom level
+					, cities.data		// ByteArray containing Shapefile
+					, shp				// Parsed Shapefile header
+					, citiesdb.data		// ByteArray containing DBF file
+					, dbf				// Parsed DBF file header
+					, "NAME"			// Value field name to use a label caption
+					);
+			}
+
+			public function drawDbfLabelsAtShpPoints
+				( t: DisplayObjectContainer, zoom: Number
+				, ptdata: ByteArray, shp: ShpHeader
+				, lbldata: ByteArray, dbf: DbfHeader, field: String
+				): void 
+			{
+				// Check if the supplied SHP file carries Point records:
+				if (shp.shapeType != ShpType.SHAPE_POINT)
+					throw(new Error("Shape doesn't carry Point records"));
+
+				// Read all Point records from the Shapefile:
+				var ptrecords: Array = ShpTools.readRecords(ptdata);
+
+				// Iterate over records, and place labels:
+				for (var i: uint = 0; i<ptrecords.length; i++) {
+					// Create a label:
+					var label: TextField = createLabel(8);
+
+					// Retrieve Point record as a ShpPoint:
+					var pt: ShpPoint = ptrecords[i].shape as ShpPoint;
+					// Place label:
+					label.x = pt.x * z;
+					label.y = -pt.y * z;
+					// Fetch macthing index from the DBF File
+					var dr: DbfRecord = DbfTools.getRecord
+						( lbldata	// ByteArray containing DBF file
+						, dbf		// Parsed DBF file header
+						, i			// index of record to read
+						);
+					// DbfRecord.values is a dictionary: field
+					// values can be retreived like so:
+					label.text = dr.values[field];
+					// Add label to target DisplayObjectContainer:
+					t.addChild(label);		
+				}
+			}
+
+			// -- Utility functions:
+
+			public function createLabel(size: Number): TextField {
+				// Create a text-format for the labels:
+				var format: TextFormat = new TextFormat();
+		        format.font = "Verdana";
+		        format.color = 0x00;
+		        format.size = size;
+		        format.underline = false;
+				format.bold = true;
+
+				// create text-field:
+				var label: TextField = new TextField();
+				label.autoSize = TextFieldAutoSize.LEFT;
+				label.background = false;
+				label.border = false;
+				label.type = TextFieldType.DYNAMIC;
+				label.selectable = false;
+				label.defaultTextFormat = format;
+
+				return label;
+			}
+
+			public function scaleToFitCanvas(t: DisplayObject, shp: ShpHeader, zoom: Number): void {
+				// fit to requested width/height:
+				var r: Rectangle 	= getBounds(t);		
+				var f: Number 		= Math.min
+										( stage.stageHeight / r.height
+										, stage.stageWidth / r.width
+										);
+
+				// set calculated scale:
+				if (f!=Infinity) 
+					t.scaleX = t.scaleY = f;
+
+				// maintain top-left position:
+				t.x = -shp.boundsXY.left * zoom * f;
+				t.y = (shp.boundsXY.bottom-shp.boundsXY.top) * zoom * f;		
+			}
+		}
+
+
+        ]]>
+    </mx:Script>
+
+    <mx:Panel title="Alert Control Example" width="75%" horizontalAlign="center" paddingTop="10">
+      <mx:Text width="100%" color="blue" textAlign="center"
+          text="Click the button below to display a simple Alert window."/>
+      <mx:Button label="Click Me" click="showalertbox();"/>
+
+    </mx:Panel>
+
+</mx:Application>
