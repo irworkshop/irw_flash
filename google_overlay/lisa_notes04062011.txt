@@ -1,0 +1,4 @@
+-- she needs to include multiple states if she does the graphic assets. 
+
+-- it has to be worked on while the map is getting built, not after. 
+
